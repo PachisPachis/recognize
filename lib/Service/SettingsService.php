@@ -53,6 +53,13 @@ final class SettingsService {
 		'nice_value' => '0',
 		'concurrency.enabled' => 'false',
 		'ffmpeg_binary' => '',
+		'external_tagger.enabled' => 'false',
+		'external_tagger.provider' => 'ollama',
+		'external_tagger.endpoint' => 'http://127.0.0.1:11434',
+		'external_tagger.timeout' => '120',
+		'external_tagger.token' => '',
+		'external_tagger.model' => 'gemma3:12b',
+		'external_tagger.video' => 'false',
 	];
 
 	/** @var array<string,string>  */

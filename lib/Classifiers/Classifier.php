@@ -262,6 +262,173 @@ abstract class Classifier {
 	}
 
 	/**
+	 * @param string $model
+	 * @param list<QueueFile> $queueFiles
+	 * @param int $timeout
+	 * @return \Generator
+	 * @psalm-return \Generator<QueueFile, list<string>, mixed, null>
+	 */
+	public function classifyFilesWithExternalTagger(string $model, array $queueFiles, int $timeout): \Generator {
+		$startTime = time();
+		foreach ($queueFiles as $queueFile) {
+			if ($this->maxExecutionTime > 0 && time() - $startTime > $this->maxExecutionTime) {
+				return;
+			}
+
+			$file = $this->rootFolder->getFirstNodeById($queueFile->getFileId());
+			if ($file === null) {
+				try {
+					$this->queue->removeFromQueue($model, $queueFile);
+				} catch (Exception $e) {
+					$this->logger->warning($e->getMessage(), ['exception' => $e]);
+				}
+				continue;
+			}
+
+			try {
+				$path = $this->getConvertedFilePath($file);
+				$results = $this->requestExternalTagger($path, $file->getMimeType(), $timeout);
+				yield $queueFile => $results;
+				$this->queue->removeFromQueue($model, $queueFile);
+			} catch (\Throwable $e) {
+				$this->logger->warning('External tagger failed for file ' . $file->getPath() . ': ' . $e->getMessage(), ['exception' => $e]);
+			}
+		}
+		$this->cleanUpTmpFiles();
+	}
+
+	/**
+	 * @param string $path
+	 * @param string $mime
+	 * @param int $timeout
+	 * @return list<string>
+	 */
+	private function requestExternalTagger(string $path, string $mime, int $timeout): array {
+		$provider = $this->config->getAppValueString('external_tagger.provider', 'ollama');
+		if ($provider === 'ollama' && str_starts_with($mime, 'video/')) {
+			throw new \RuntimeException('Ollama external tagger currently supports images only');
+		}
+		$endpoint = rtrim($this->config->getAppValueString('external_tagger.endpoint', 'http://127.0.0.1:11434'), '/');
+		$model = $this->config->getAppValueString('external_tagger.model', 'gemma3:12b');
+		$token = trim($this->config->getAppValueString('external_tagger.token', ''));
+
+		if ($provider === 'ollama') {
+			return $this->requestOllamaTagger($path, $timeout, $endpoint, $model);
+		}
+
+		$ch = curl_init();
+		if ($ch === false) {
+			throw new \RuntimeException('Could not initialize cURL');
+		}
+
+		$postData = [
+			'file' => new \CURLFile($path, $mime, basename($path)),
+			'model' => $model,
+		];
+
+		$headers = ['Accept: application/json'];
+		if ($token !== '') {
+			$headers[] = 'Authorization: Bearer ' . $token;
+		}
+
+		curl_setopt_array($ch, [
+			CURLOPT_URL => $endpoint,
+			CURLOPT_POST => true,
+			CURLOPT_HTTPHEADER => $headers,
+			CURLOPT_POSTFIELDS => $postData,
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_CONNECTTIMEOUT => 10,
+			CURLOPT_TIMEOUT => max(1, $timeout),
+		]);
+
+		$response = curl_exec($ch);
+		if ($response === false) {
+			$error = curl_error($ch);
+			curl_close($ch);
+			throw new \RuntimeException('External tagger request failed: ' . $error);
+		}
+
+		$statusCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+		curl_close($ch);
+
+		if ($statusCode < 200 || $statusCode >= 300) {
+			throw new \RuntimeException('External tagger returned status code ' . $statusCode);
+		}
+
+		/** @var array{tags?:list<string>} $decoded */
+		$decoded = json_decode($response, true, 512, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_IGNORE);
+		if (!isset($decoded['tags']) || !is_array($decoded['tags'])) {
+			throw new \RuntimeException('External tagger response does not contain tags array');
+		}
+
+		return array_values(array_filter($decoded['tags'], static fn ($tag): bool => is_string($tag) && trim($tag) !== ''));
+	}
+
+	/**
+	 * @param string $path
+	 * @param int $timeout
+	 * @param string $endpoint
+	 * @param string $model
+	 * @return list<string>
+	 */
+	private function requestOllamaTagger(string $path, int $timeout, string $endpoint, string $model): array {
+		$imageData = file_get_contents($path);
+		if ($imageData === false) {
+			throw new \RuntimeException('Could not read file for Ollama request');
+		}
+
+		$payload = [
+			'model' => $model,
+			'format' => 'json',
+			'stream' => false,
+			'prompt' => 'Return only a JSON object with a tags array of concise lowercase nouns for this media, e.g. {"tags":["beach","sunset"]}.',
+			'images' => [base64_encode($imageData)],
+		];
+
+		$ch = curl_init();
+		if ($ch === false) {
+			throw new \RuntimeException('Could not initialize cURL');
+		}
+
+		curl_setopt_array($ch, [
+			CURLOPT_URL => $endpoint . '/api/generate',
+			CURLOPT_POST => true,
+			CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+			CURLOPT_POSTFIELDS => json_encode($payload, JSON_THROW_ON_ERROR),
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_CONNECTTIMEOUT => 10,
+			CURLOPT_TIMEOUT => max(1, $timeout),
+		]);
+
+		$response = curl_exec($ch);
+		if ($response === false) {
+			$error = curl_error($ch);
+			curl_close($ch);
+			throw new \RuntimeException('Ollama request failed: ' . $error);
+		}
+
+		$statusCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+		curl_close($ch);
+		if ($statusCode < 200 || $statusCode >= 300) {
+			throw new \RuntimeException('Ollama returned status code ' . $statusCode);
+		}
+
+		/** @var array{response?:string} $decoded */
+		$decoded = json_decode($response, true, 512, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_IGNORE);
+		if (!isset($decoded['response']) || !is_string($decoded['response'])) {
+			throw new \RuntimeException('Ollama response payload missing response text');
+		}
+
+		/** @var array{tags?:list<string>} $modelJson */
+		$modelJson = json_decode($decoded['response'], true, 512, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_IGNORE);
+		if (!isset($modelJson['tags']) || !is_array($modelJson['tags'])) {
+			throw new \RuntimeException('Ollama model response does not contain tags array');
+		}
+
+		return array_values(array_filter($modelJson['tags'], static fn ($tag): bool => is_string($tag) && trim($tag) !== ''));
+	}
+
+	/**
 	 * Get path of file to process.
 	 * If the file is an image and not JPEG, it will be converted using ImageMagick.
 	 * Images will also be downscaled to a max dimension of 4096px.
@@ -271,7 +438,7 @@ abstract class Classifier {
 	 * @throws \OCP\Files\NotFoundException
 	 * @throws GenericEncryptionException
 	 */
-	private function getConvertedFilePath(Node $file): string {
+	protected function getConvertedFilePath(Node $file): string {
 		if (!$file instanceof File) {
 			throw new NotFoundException();
 		}

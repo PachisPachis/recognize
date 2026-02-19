@@ -130,6 +130,41 @@ Any configuration is done in Settings/Recognize of your Nextcloud instance.
 
 If you want path/to/your/folder/* to be excluded from image recognition, add a file `path/to/your/folder/.noimage`. If you want to exclude it from music genre recognition, add a file `path/to/your/folder/.nomusic`. If you want to exclude it from video recognition, add a file `path/to/your/folder/.novideo`. If you want to exclude it from all recognition, add a file `path/to/your/folder/.nomedia`.
 
+#### External tagger (recommended for newer models)
+
+If you want to use newer AI models than the bundled TensorFlow.js models, enable the external tagger integration in Recognize.
+
+**Recommended provider:** [Ollama](https://ollama.com/) via the official Docker image.
+
+**Recommended model:** `gemma3:12b` (newer multimodal model, strong accuracy, practical on-prem deployment).
+
+Run Ollama with Docker:
+
+```bash
+docker run -d --name recognize-ollama   -p 11434:11434   -v ollama:/root/.ollama   ollama/ollama
+```
+
+Pull the model:
+
+```bash
+docker exec -it recognize-ollama ollama pull gemma3:12b
+```
+
+Then set these Recognize settings:
+
+- `external_tagger.enabled=true`
+- `external_tagger.provider=ollama`
+- `external_tagger.endpoint=http://127.0.0.1:11434`
+- `external_tagger.model=gemma3:12b`
+- `external_tagger.timeout=120`
+- `external_tagger.video=false` (recommended for Ollama mode)
+
+Notes:
+- `ollama` mode is implemented directly and sends images to `/api/generate`.
+- `generic` mode is still supported for custom HTTP services that return `{"tags":[...]}`.
+- If `external_tagger.enabled=false`, Recognize falls back to internal models.
+
+
 ### Manual install
 
 #### Dependencies

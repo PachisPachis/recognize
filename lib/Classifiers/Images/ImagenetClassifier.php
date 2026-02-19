@@ -38,7 +38,13 @@ final class ImagenetClassifier extends Classifier {
 		} else {
 			$timeout = self::IMAGE_TIMEOUT;
 		}
-		$classifierProcess = $this->classifyFiles(self::MODEL_NAME, $queueFiles, $timeout);
+
+		if ($this->config->getAppValueString('external_tagger.enabled', 'false') === 'true') {
+			$externalTimeout = intval($this->config->getAppValueString('external_tagger.timeout', (string)$timeout));
+			$classifierProcess = $this->classifyFilesWithExternalTagger(self::MODEL_NAME, $queueFiles, $externalTimeout);
+		} else {
+			$classifierProcess = $this->classifyFiles(self::MODEL_NAME, $queueFiles, $timeout);
+		}
 
 		/** @var \OCA\Recognize\Db\QueueFile $queueFile */
 		/** @var list<string> $results */
