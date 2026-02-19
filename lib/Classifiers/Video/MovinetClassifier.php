@@ -31,12 +31,20 @@ final class MovinetClassifier extends Classifier {
 
 	#[Override]
 	public function classify(array $queueFiles): void {
-		if ($this->config->getAppValueString('tensorflow.purejs', 'false') === 'true') {
+		$useExternalTagger = $this->config->getAppValueString('external_tagger.enabled', 'false') === 'true'
+			&& $this->config->getAppValueString('external_tagger.video', 'true') === 'true';
+
+		if (!$useExternalTagger && $this->config->getAppValueString('tensorflow.purejs', 'false') === 'true') {
 			throw new Exception('Movinet does not support WASM mode');
-		} else {
-			$timeout = self::VIDEO_TIMEOUT;
 		}
-		$classifierProcess = $this->classifyFiles(self::MODEL_NAME, $queueFiles, $timeout);
+
+		$timeout = self::VIDEO_TIMEOUT;
+		if ($useExternalTagger) {
+			$externalTimeout = intval($this->config->getAppValueString('external_tagger.timeout', (string)$timeout));
+			$classifierProcess = $this->classifyFilesWithExternalTagger(self::MODEL_NAME, $queueFiles, $externalTimeout);
+		} else {
+			$classifierProcess = $this->classifyFiles(self::MODEL_NAME, $queueFiles, $timeout);
+		}
 
 		/** @var \OCA\Recognize\Db\QueueFile $queueFile */
 		/** @var list<string> $results */

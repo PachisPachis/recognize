@@ -376,6 +376,62 @@
 					@update:value="onChange" />
 			</p>
 		</NcSettingsSection>
+
+		<NcSettingsSection :name="t('recognize', 'External tagger API')">
+			<p>
+				<NcCheckboxRadioSwitch :checked.sync="settings['external_tagger.enabled']" type="switch" @update:checked="onChange">
+					{{ t('recognize', 'Enable external tagger API for object recognition') }}
+				</NcCheckboxRadioSwitch>
+			</p>
+			<p>{{ t('recognize', 'When enabled, Recognize sends files to an external tagging service. Recommended: Ollama in Docker with a modern vision model.') }}</p>
+			<p>
+				<NcTextField :value.sync="settings['external_tagger.provider']"
+					:disabled="!settings['external_tagger.enabled']"
+					:label-visible="true"
+					:label="t('recognize', 'Provider (ollama or generic)')"
+					@update:value="onChange" />
+			</p>
+			<p>
+				<NcTextField :value.sync="settings['external_tagger.endpoint']"
+					:disabled="!settings['external_tagger.enabled']"
+					:label-visible="true"
+					:label="t('recognize', 'External tagger endpoint URL (base URL for ollama)')"
+					@update:value="onChange" />
+			</p>
+			<p>
+				<NcTextField :value.sync="settings['external_tagger.model']"
+					:disabled="!settings['external_tagger.enabled']"
+					:label-visible="true"
+					:label="t('recognize', 'Model name passed to external tagger')"
+					@update:value="onChange" />
+			</p>
+			<p>
+				<NcTextField :value.sync="settings['external_tagger.timeout']"
+					type="number"
+					:min="5"
+					:step="1"
+					:disabled="!settings['external_tagger.enabled']"
+					:label-visible="true"
+					:label="t('recognize', 'External tagger timeout (seconds)')"
+					@update:value="onChange" />
+			</p>
+			<p>
+				<NcTextField :value.sync="settings['external_tagger.token']"
+					:disabled="!settings['external_tagger.enabled']"
+					:label-visible="true"
+					:label="t('recognize', 'Bearer token (optional)')"
+					@update:value="onChange" />
+			</p>
+			<p>
+				<NcCheckboxRadioSwitch :checked.sync="settings['external_tagger.video']"
+					:disabled="!settings['external_tagger.enabled']"
+					type="switch"
+					@update:checked="onChange">
+					{{ t('recognize', 'Use external tagger for video files too') }}
+				</NcCheckboxRadioSwitch>
+			</p>
+		</NcSettingsSection>
+
 		<NcSettingsSection :name="t('recognize', 'Terminal commands') ">
 			<p>{{ t('recognize', 'To download all models preliminary to executing the classification jobs, run the following command on the server terminal.') }}</p>
 			<pre><code>occ recognize:download-models</code></pre>
@@ -417,9 +473,9 @@ import { generateUrl } from '@nextcloud/router'
 import { loadState } from '@nextcloud/initial-state'
 import humanizeDuration from 'humanize-duration'
 
-const SETTINGS = ['tensorflow.cores', 'tensorflow.gpu', 'tensorflow.purejs', 'imagenet.enabled', 'landmarks.enabled', 'faces.enabled', 'musicnn.enabled', 'movinet.enabled', 'node_binary', 'ffmpeg_binary', 'faces.status', 'imagenet.status', 'landmarks.status', 'movinet.status', 'musicnn.status', 'faces.lastFile', 'imagenet.lastFile', 'landmarks.lastFile', 'movinet.lastFile', 'musicnn.lastFile', 'faces.batchSize', 'imagenet.batchSize', 'landmarks.batchSize', 'movinet.batchSize', 'musicnn.batchSize', 'clusterFaces.status', 'clusterFaces.lastRun', 'nice_binary', 'nice_value', 'concurrency.enabled']
+const SETTINGS = ['tensorflow.cores', 'tensorflow.gpu', 'tensorflow.purejs', 'imagenet.enabled', 'landmarks.enabled', 'faces.enabled', 'musicnn.enabled', 'movinet.enabled', 'node_binary', 'ffmpeg_binary', 'faces.status', 'imagenet.status', 'landmarks.status', 'movinet.status', 'musicnn.status', 'faces.lastFile', 'imagenet.lastFile', 'landmarks.lastFile', 'movinet.lastFile', 'musicnn.lastFile', 'faces.batchSize', 'imagenet.batchSize', 'landmarks.batchSize', 'movinet.batchSize', 'musicnn.batchSize', 'clusterFaces.status', 'clusterFaces.lastRun', 'nice_binary', 'nice_value', 'concurrency.enabled', 'external_tagger.enabled', 'external_tagger.provider', 'external_tagger.endpoint', 'external_tagger.timeout', 'external_tagger.token', 'external_tagger.model', 'external_tagger.video']
 
-const BOOLEAN_SETTINGS = ['tensorflow.gpu', 'tensorflow.purejs', 'imagenet.enabled', 'landmarks.enabled', 'faces.enabled', 'musicnn.enabled', 'movinet.enabled', 'faces.status', 'imagenet.status', 'landmarks.status', 'movinet.status', 'musicnn.status', 'faces.lastFile', 'imagenet.lastFile', 'landmarks.lastFile', 'movinet.lastFile', 'musicnn.lastFile', 'clusterFaces.status', 'concurrency.enabled']
+const BOOLEAN_SETTINGS = ['tensorflow.gpu', 'tensorflow.purejs', 'imagenet.enabled', 'landmarks.enabled', 'faces.enabled', 'musicnn.enabled', 'movinet.enabled', 'faces.status', 'imagenet.status', 'landmarks.status', 'movinet.status', 'musicnn.status', 'faces.lastFile', 'imagenet.lastFile', 'landmarks.lastFile', 'movinet.lastFile', 'musicnn.lastFile', 'clusterFaces.status', 'concurrency.enabled', 'external_tagger.enabled', 'external_tagger.video']
 
 const MAX_RELATIVE_DATE = 1000 * 60 * 60 * 24 * 7 // one week
 
